@@ -1,5 +1,5 @@
 -- $Id: testes/errors.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
 
 print("testing errors")
 
@@ -45,8 +45,8 @@ end
 -- test error message with no extra info
 assert(doit("error('hi', 0)") == 'hi')
 
--- test error message with no info
-assert(doit("error()") == nil)
+-- test nil error message
+assert(doit("error()") == "<no error object>")
 
 
 -- test common errors/errors that crashed in the past
@@ -161,6 +161,9 @@ checkmessage("aaa=(1)..{}", "a table value")
 
 -- bug in 5.4.6
 checkmessage("a = {_ENV = {}}; print(a._ENV.x + 1)", "field 'x'")
+
+-- a similar bug, since 5.4.0
+checkmessage("print(('_ENV').x + 1)", "field 'x'")
 
 _G.aaa, _G.bbbb = nil
 
@@ -300,14 +303,14 @@ do
   local f = function (a) return a + 1 end
   f = assert(load(string.dump(f, true)))
   assert(f(3) == 4)
-  checkerr("^%?:%-1:", f, {})
+  checkerr("^%?:%?:", f, {})
 
   -- code with a move to a local var ('OP_MOV A B' with A<B)
   f = function () local a; a = {}; return a + 2 end
   -- no debug info (so that 'a' is unknown)
   f = assert(load(string.dump(f, true)))
   -- symbolic execution should not get lost
-  checkerr("^%?:%-1:.*table value", f)
+  checkerr("^%?:%?:.*table value", f)
 end
 
 
@@ -321,7 +324,8 @@ t = nil
 checkmessage(s.."; aaa = bbb + 1", "global 'bbb'")
 checkmessage("local _ENV=_ENV;"..s.."; aaa = bbb + 1", "global 'bbb'")
 checkmessage(s.."; local t = {}; aaa = t.bbb + 1", "field 'bbb'")
-checkmessage(s.."; local t = {}; t:bbb()", "method 'bbb'")
+-- cannot use 'self' opcode
+checkmessage(s.."; local t = {}; t:bbb()", "field 'bbb'")
 
 checkmessage([[aaa=9
 repeat until 3==3
@@ -485,6 +489,14 @@ if not b then
   end
 end]], 5)
 
+lineerror([[
+_ENV = 1
+global function foo ()
+  local a = 10
+  return a
+end
+]], 2)
+
 
 -- bug in 5.4.0
 lineerror([[
@@ -503,7 +515,7 @@ end
 
 
 if not _soft then
-  -- several tests that exaust the Lua stack
+  -- several tests that exhaust the Lua stack
   collectgarbage()
   print"testing stack overflow"
   local C = 0
@@ -554,7 +566,7 @@ if not _soft then
 
   -- error in error handling
   local res, msg = xpcall(error, error)
-  assert(not res and type(msg) == 'string')
+  assert(not res and msg == 'error in error handling')
   print('+')
 
   local function f (x)
@@ -585,6 +597,27 @@ if not _soft then
 end
 
 
+do  -- errors in error handle that not necessarily go forever
+  local function err (n)   -- function to be used as message handler
+    -- generate an error unless n is zero, so that there is a limited
+    -- loop of errors
+    if type(n) ~= "number" then   -- some other error?
+      return n   -- report it
+    elseif n == 0 then
+      return "END"   -- that will be the final message
+    else error(n - 1)   -- does the loop
+    end
+  end
+
+  local res, msg = xpcall(error, err, 170)
+  assert(not res and msg == "END")
+
+  -- too many levels
+  local res, msg = xpcall(error, err, 300)
+  assert(not res and msg == "C stack overflow")
+end
+
+
 do
   -- non string messages
   local t = {}
@@ -592,7 +625,7 @@ do
   assert(not res and msg == t)
 
   res, msg = pcall(function () error(nil) end)
-  assert(not res and msg == nil)
+  assert(not res and msg == "<no error object>")
 
   local function f() error{msg='x'} end
   res, msg = xpcall(f, function (r) return {msg=r.msg..'y'} end)
@@ -612,7 +645,7 @@ do
   assert(not res and msg == t)
 
   res, msg = pcall(assert, nil, nil)
-  assert(not res and msg == nil)
+  assert(not res and type(msg) == "string")
 
   -- 'assert' without arguments
   res, msg = pcall(assert)
@@ -656,21 +689,26 @@ end
 -- testing syntax limits
 
 local function testrep (init, rep, close, repc, finalresult)
-  local s = init .. string.rep(rep, 100) .. close .. string.rep(repc, 100)
-  local res, msg = load(s)
-  assert(res)   -- 100 levels is OK
+  local function gencode (n)
+    return init .. string.rep(rep, n) .. close .. string.rep(repc, n)
+  end
+  local res, msg = load(gencode(100))   -- 100 levels is OK
+  assert(res)
   if (finalresult) then
     assert(res() == finalresult)
   end
-  s = init .. string.rep(rep, 500)
-  local res, msg = load(s)   -- 500 levels not ok
+  local res, msg = load(gencode(500))   -- 500 levels not ok
   assert(not res and (string.find(msg, "too many") or
                       string.find(msg, "overflow")))
 end
 
+testrep("local a", ",a", ";", "")    -- local variables
+testrep("local a", ",a", "= 1", ",1")    -- local variables initialized
+testrep("local a", ",a", "= f()", "")    -- local variables initialized
 testrep("local a; a", ",a", "= 1", ",1")    -- multiple assignment
-testrep("local a; a=", "{", "0", "}")
-testrep("return ", "(", "2", ")", 2)
+testrep("local a; a=", "{", "0", "}")   -- constructors
+testrep("return ", "(", "2", ")", 2)  -- parentheses
+-- nested calls  (a(a(a(a(...)))))
 testrep("local function a (x) return x end; return ", "a(", "2.2", ")", 2.2)
 testrep("", "do ", "", " end")
 testrep("", "while a do ", "", " end")
@@ -709,7 +747,7 @@ assert(c > 255 and string.find(b, "too many upvalues") and
 
 -- local variables
 s = "\nfunction foo ()\n  local "
-for j = 1,300 do
+for j = 1,200 do
   s = s.."a"..j..", "
 end
 s = s.."b\n"

@@ -1,8 +1,9 @@
 -- $Id: testes/strings.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
 
 -- ISO Latin encoding
 
+global <const> *
 
 print('testing strings and string library')
 

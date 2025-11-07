@@ -33,6 +33,8 @@
 
 #define LuaClosure(f)		((f) != NULL && (f)->c.tt == LUA_VLCL)
 
+static const char strlocal[] = "local";
+static const char strupval[] = "upvalue";
 
 static const char *funcnamefromcall (lua_State *L, CallInfo *ci,
                                                    const char **name);
@@ -505,7 +507,7 @@ static const char *basicgetobjname (const Proto *p, int *ppc, int reg,
   int pc = *ppc;
   *name = luaF_getlocalname(p, reg + 1, pc);
   if (*name)  /* is a local? */
-    return "local";
+    return strlocal;
   /* else try symbolic execution */
   *ppc = pc = findsetreg(p, pc, reg);
   if (pc != -1) {  /* could find instruction? */
@@ -520,7 +522,7 @@ static const char *basicgetobjname (const Proto *p, int *ppc, int reg,
       }
       case OP_GETUPVAL: {
         *name = upvalname(p, GETARG_B(i));
-        return "upvalue";
+        return strupval;
       }
       case OP_LOADK: return kname(p, GETARG_Bx(i), name);
       case OP_LOADKX: return kname(p, GETARG_Ax(p->code[pc + 1]), name);
@@ -542,18 +544,6 @@ static void rname (const Proto *p, int pc, int c, const char **name) {
 
 
 /*
-** Find a "name" for a 'C' value in an RK instruction.
-*/
-static void rkname (const Proto *p, int pc, Instruction i, const char **name) {
-  int c = GETARG_C(i);  /* key index */
-  if (GETARG_k(i))  /* is 'c' a constant? */
-    kname(p, c, name);
-  else  /* 'c' is a register */
-    rname(p, pc, c, name);
-}
-
-
-/*
 ** Check whether table being indexed by instruction 'i' is the
 ** environment '_ENV'
 */
@@ -562,8 +552,13 @@ static const char *isEnv (const Proto *p, int pc, Instruction i, int isup) {
   const char *name;  /* name of indexed variable */
   if (isup)  /* is 't' an upvalue? */
     name = upvalname(p, t);
-  else  /* 't' is a register */
-    basicgetobjname(p, &pc, t, &name);
+  else {  /* 't' is a register */
+    const char *what = basicgetobjname(p, &pc, t, &name);
+    /* 'name' must be the name of a local variable (at the current
+       level or an upvalue) */
+    if (what != strlocal && what != strupval)
+      name = NULL;  /* cannot be the variable _ENV */
+  }
   return (name && strcmp(name, LUA_ENV) == 0) ? "global" : "field";
 }
 
@@ -600,7 +595,8 @@ static const char *getobjname (const Proto *p, int lastpc, int reg,
         return isEnv(p, lastpc, i, 0);
       }
       case OP_SELF: {
-        rkname(p, lastpc, i, name);
+        int k = GETARG_C(i);  /* key index */
+        kname(p, k, name);
         return "method";
       }
       default: break;  /* go through to return NULL */
@@ -709,7 +705,7 @@ static const char *getupvalname (CallInfo *ci, const TValue *o,
   for (i = 0; i < c->nupvalues; i++) {
     if (c->upvals[i]->v.p == o) {
       *name = upvalname(c->p, i);
-      return "upvalue";
+      return strupval;
     }
   }
   return NULL;
@@ -821,16 +817,15 @@ l_noret luaG_ordererror (lua_State *L, const TValue *p1, const TValue *p2) {
 /* add src:line information to 'msg' */
 const char *luaG_addinfo (lua_State *L, const char *msg, TString *src,
                                         int line) {
-  char buff[LUA_IDSIZE];
-  if (src) {
+  if (src == NULL)  /* no debug information? */
+    return luaO_pushfstring(L, "?:?: %s", msg);
+  else {
+    char buff[LUA_IDSIZE];
     size_t idlen;
     const char *id = getlstr(src, idlen);
     luaO_chunkid(buff, id, idlen);
+    return luaO_pushfstring(L, "%s:%d: %s", buff, line, msg);
   }
-  else {  /* no source available; use "?" instead */
-    buff[0] = '?'; buff[1] = '\0';
-  }
-  return luaO_pushfstring(L, "%s:%d: %s", buff, line, msg);
 }
 
 
@@ -843,6 +838,10 @@ l_noret luaG_errormsg (lua_State *L) {
     L->top.p++;  /* assume EXTRA_STACK */
     luaD_callnoyield(L, L->top.p - 2, 1);  /* call it */
   }
+  if (ttisnil(s2v(L->top.p - 1))) {  /* error object is nil? */
+    /* change it to a proper message */
+    setsvalue2s(L, L->top.p - 1, luaS_newliteral(L, "<no error object>"));
+  }
   luaD_throw(L, LUA_ERRRUN);
 }
 
@@ -852,10 +851,8 @@ l_noret luaG_runerror (lua_State *L, const char *fmt, ...) {
   const char *msg;
   va_list argp;
   luaC_checkGC(L);  /* error message uses memory */
-  va_start(argp, fmt);
-  msg = luaO_pushvfstring(L, fmt, argp);  /* format message */
-  va_end(argp);
-  if (msg != NULL && isLua(ci)) {  /* Lua function? (and no error) */
+  pushvfstring(L, argp, fmt, msg);
+  if (isLua(ci)) {  /* Lua function? */
     /* add source:line information */
     luaG_addinfo(L, msg, ci_func(ci)->p->source, getcurrentline(ci));
     setobjs2s(L, L->top.p - 2, L->top.p - 1);  /* remove 'msg' */
@@ -909,7 +906,7 @@ int luaG_tracecall (lua_State *L) {
   if (ci->u.l.savedpc == p->code) {  /* first instruction (not resuming)? */
     if (p->flag & PF_ISVARARG)
       return 0;  /* hooks will start at VARARGPREP instruction */
-    else if (!(ci->callstatus & CIST_HOOKYIELD))  /* not yieded? */
+    else if (!(ci->callstatus & CIST_HOOKYIELD))  /* not yielded? */
       luaD_hookcall(L, ci);  /* check 'call' hook */
   }
   return 1;  /* keep 'trap' on */

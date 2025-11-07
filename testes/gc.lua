@@ -1,5 +1,5 @@
 -- $Id: testes/gc.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
 
 print('testing incremental garbage collection')
 
@@ -288,6 +288,21 @@ x,y,z=nil
 collectgarbage()
 assert(next(a) == string.rep('$', 11))
 
+do   -- invalid mode
+  local a = setmetatable({}, {__mode = 34})
+  collectgarbage()
+end
+
+
+if T then   -- bug since 5.3: all-weak tables are not being revisited
+  T.gcstate("propagate")
+  local t = setmetatable({}, {__mode = "kv"})
+  T.gcstate("enteratomic")   -- 't' was visited
+  setmetatable(t, {__mode = "kv"})
+  T.gcstate("pause")  -- its new metatable is not being visited
+  assert(getmetatable(t).__mode == "kv")
+end
+
 
 -- 'bug' in 5.1
 a = {}
@@ -446,8 +461,8 @@ do   -- tests for string keys in weak tables
   local m = collectgarbage("count")         -- current memory
   local a = setmetatable({}, {__mode = "kv"})
   a[string.rep("a", 2^22)] = 25   -- long string key -> number value
-  a[string.rep("b", 2^22)] = {}   -- long string key -> colectable value
-  a[{}] = 14                     -- colectable key
+  a[string.rep("b", 2^22)] = {}   -- long string key -> collectable value
+  a[{}] = 14                     -- collectable key
   collectgarbage()
   local k, v = next(a)   -- string key with number value preserved
   assert(k == string.rep("a", 2^22) and v == 25)
@@ -459,7 +474,7 @@ do   -- tests for string keys in weak tables
   assert(next(a) == nil)
   -- make sure will not try to compare with dead key
   assert(a[string.rep("b", 100)] == undef)
-  assert(collectgarbage("count") <= m + 1)   -- eveything collected
+  assert(collectgarbage("count") <= m + 1)   -- everything collected
 end
 
 
@@ -524,7 +539,7 @@ do
     local co = coroutine.create(f)
     assert(coroutine.resume(co, co))
   end
-  -- Now, thread and closure are not reacheable any more.
+  -- Now, thread and closure are not reachable any more.
   collectgarbage()
   assert(collected)
   collectgarbage("restart")
@@ -601,6 +616,21 @@ end
 
 
 if T then
+  collectgarbage("stop")
+  T.gcstate("pause")
+  local sup = {x = 0}
+  local a = setmetatable({}, {__newindex = sup})
+  T.gcstate("enteratomic")
+  assert(T.gccolor(sup) == "black")
+  a.x = {}   -- should not break the invariant
+  assert(not (T.gccolor(sup) == "black" and T.gccolor(sup.x) == "white"))
+  T.gcstate("pause")  -- complete the GC cycle
+  sup.x.y = 10
+  collectgarbage("restart")
+end
+
+
+if T then
   print("emergency collections")
   collectgarbage()
   collectgarbage()
@@ -629,7 +659,7 @@ do
     assert(getmetatable(o) == tt)
     -- create new objects during GC
     local a = 'xuxu'..(10+3)..'joao', {}
-    ___Glob = o  -- ressurrect object!
+    ___Glob = o  -- resurrect object!
     setmetatable({}, tt)  -- creates a new one with same metatable
     print(">>> closing state " .. "<<<\n")
   end

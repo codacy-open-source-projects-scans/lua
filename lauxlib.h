@@ -81,6 +81,9 @@ LUALIB_API int (luaL_checkoption) (lua_State *L, int arg, const char *def,
 LUALIB_API int (luaL_fileresult) (lua_State *L, int stat, const char *fname);
 LUALIB_API int (luaL_execresult) (lua_State *L, int stat);
 
+LUALIB_API void *luaL_alloc (void *ud, void *ptr, size_t osize,
+                                                  size_t nsize);
+
 
 /* predefined references */
 #define LUA_NOREF       (-2)
@@ -165,7 +168,11 @@ LUALIB_API void (luaL_requiref) (lua_State *L, const char *modname,
 
 
 /* push the value used to represent failure/error */
+#if defined(LUA_FAILISFALSE)
+#define luaL_pushfail(L)	lua_pushboolean(L, 0)
+#else
 #define luaL_pushfail(L)	lua_pushnil(L)
+#endif
 
 
 

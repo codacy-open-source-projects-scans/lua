@@ -1,5 +1,7 @@
 -- $Id: testes/nextvar.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
+
+global <const> *
 
 print('testing tables, next, and for')
 
@@ -227,7 +229,7 @@ for i = 1,lim do
 end
 
 
--- insert and delete elements until a rehash occurr. Caller must ensure
+-- insert and delete elements until a rehash occur. Caller must ensure
 -- that a rehash will change the shape of the table. Must repeat because
 -- the insertion may collide with the deleted element, and then there is
 -- no rehash.
@@ -343,13 +345,22 @@ do
   end
 end
 
+
+do  print("testing attack on table length")
+  local t = {}
+  local lim = math.floor(math.log(math.maxinteger, 2)) - 1
+  for i = lim, 0, -1 do
+    t[2^i] = true
+  end
+  assert(t[1 << lim])
+  -- next loop should not take forever
+  for i = 1, #t do end
+end
+
 local nofind = {}
 
-a,b,c = 1,2,3
-a,b,c = nil
 
-
--- next uses always the same iteraction function
+-- next uses always the same iteration function
 assert(next{} == next{})
 
 local function find (name)
@@ -396,7 +407,7 @@ for i=0,10000 do
   end
 end
 
-n = {n=0}
+local n = {n=0}
 for i,v in pairs(a) do
   n.n = n.n+1
   assert(i and v and a[i] == v)

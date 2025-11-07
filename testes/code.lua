@@ -1,5 +1,7 @@
 -- $Id: testes/code.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
+
+global <const> *
 
 if T==nil then
   (Message or print)('\n >>> testC not active: skipping opcode tests <<<\n')
@@ -405,20 +407,29 @@ do   -- tests for table access in upvalues
 end
 
 -- de morgan
-checkequal(function () local a; if not (a or b) then b=a end end,
-           function () local a; if (not a and not b) then b=a end end)
+checkequal(function () local a, b; if not (a or b) then b=a end end,
+           function () local a, b; if (not a and not b) then b=a end end)
 
 checkequal(function (l) local a; return 0 <= a and a <= l end,
            function (l) local a; return not (not(a >= 0) or not(a <= l)) end)
 
 
--- if-break optimizations
 check(function (a, b)
         while a do
           if b then break else a = a + 1 end
         end
       end,
-'TEST', 'JMP', 'TEST', 'JMP', 'ADDI', 'MMBINI', 'JMP', 'RETURN0')
+'TEST', 'JMP', 'TEST', 'JMP', 'JMP', 'CLOSE', 'JMP', 'ADDI', 'MMBINI', 'JMP', 'RETURN0')
+
+check(function ()
+        do
+          goto exit   -- don't need to close
+          local x <close> = nil
+          goto exit   -- must close
+        end
+        ::exit::
+      end, 'JMP', 'CLOSE', 'LOADNIL', 'TBC',
+           'CLOSE', 'JMP', 'CLOSE', 'RETURN')
 
 checkequal(function () return 6 or true or nil end,
            function () return k6 or kTrue or kNil end)
@@ -469,6 +480,24 @@ do   -- basic check for SETLIST
   local _, count = string.gsub(code, "SETLIST", "")
   -- code uses only 1 SETLIST for the constructor
   assert(count == 1)
+end
+
+
+do   print("testing code for integer limits")
+  local function checkints (n)
+    local source = string.format(
+      "local a = {[true] = 0X%x}; return a[true]", n)
+    local f = assert(load(source))
+    checkKlist(f, {n})
+    assert(f() == n)
+    f = load(string.dump(f))
+    assert(f() == n)
+  end
+
+  checkints(math.maxinteger)
+  checkints(math.mininteger)
+  checkints(-1)
+
 end
 
 print 'OK'

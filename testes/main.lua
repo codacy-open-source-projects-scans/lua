@@ -1,6 +1,6 @@
 # testing special comment on first line
 -- $Id: testes/main.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
 
 -- most (all?) tests here assume a reasonable "Unix-like" shell
 if _port then return end
@@ -90,7 +90,7 @@ prepfile[[
 1, a
 )
 ]]
-RUN('lua - < %s > %s', prog, out)
+RUN('lua - -- < %s > %s', prog, out)
 checkout("1\tnil\n")
 
 RUN('echo "print(10)\nprint(2)\n" | lua > %s', out)
@@ -133,7 +133,7 @@ checkout("-h\n")
 prepfile("print(package.path)")
 
 -- test LUA_PATH
-RUN('env LUA_INIT= LUA_PATH=x lua %s > %s', prog, out)
+RUN('env LUA_INIT= LUA_PATH=x lua -- %s > %s', prog, out)
 checkout("x\n")
 
 -- test LUA_PATH_version
@@ -226,7 +226,7 @@ RUN("lua -l 'str=string' '-lm=math' -e 'print(m.sin(0))' %s > %s", prog, out)
 checkout("0.0\nALO ALO\t20\n")
 
 
--- test module names with version sufix ("libs/lib2-v2")
+-- test module names with version suffix ("libs/lib2-v2")
 RUN("env LUA_CPATH='./libs/?.so' lua -l lib2-v2 -e 'print(lib2.id())' > %s",
     out)
 checkout("true\n")
@@ -310,8 +310,11 @@ checkprogout("ZYX)\nXYZ)\n")
 -- bug since 5.2: finalizer called when closing a state could
 -- subvert finalization order
 prepfile[[
--- should be called last
+-- ensure tables will be collected only at the end of the program
+collectgarbage"stop"
+
 print("creating 1")
+-- this finalizer should be called last
 setmetatable({}, {__gc = function () print(1) end})
 
 print("creating 2")
@@ -344,7 +347,7 @@ checkout("a\n")
 RUN([[lua "-eprint(1)" -ea=3 -e "print(a)" > %s]], out)
 checkout("1\n3\n")
 
--- test iteractive mode
+-- test interactive mode
 prepfile[[
 (6*2-6) -- ===
 a =
@@ -355,7 +358,7 @@ RUN([[lua -e"_PROMPT='' _PROMPT2=''" -i < %s > %s]], prog, out)
 checkprogout("6\n10\n10\n\n")
 
 prepfile("a = [[b\nc\nd\ne]]\na")
-RUN([[lua -e"_PROMPT='' _PROMPT2=''" -i < %s > %s]], prog, out)
+RUN([[lua -e"_PROMPT='' _PROMPT2=''" -i -- < %s > %s]], prog, out)
 checkprogout("b\nc\nd\ne\n\n")
 
 -- input interrupted in continuation line
@@ -485,12 +488,13 @@ assert(not os.remove(out))
 -- invalid options
 NoRun("unrecognized option '-h'", "lua -h")
 NoRun("unrecognized option '---'", "lua ---")
-NoRun("unrecognized option '-Ex'", "lua -Ex")
+NoRun("unrecognized option '-Ex'", "lua -Ex --")
 NoRun("unrecognized option '-vv'", "lua -vv")
 NoRun("unrecognized option '-iv'", "lua -iv")
 NoRun("'-e' needs argument", "lua -e")
 NoRun("syntax error", "lua -e a")
 NoRun("'-l' needs argument", "lua -l")
+NoRun("-i", "lua -- -i")   -- handles -i as a script name
 
 
 if T then   -- test library?

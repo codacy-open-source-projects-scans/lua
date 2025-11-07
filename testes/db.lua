@@ -1,5 +1,5 @@
 -- $Id: testes/db.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
 
 -- testing debug library
 
@@ -128,7 +128,7 @@ then
 else
   a=2
 end
-]], {2,3,4,7})
+]], {2,4,7})
 
 
 test([[
@@ -349,8 +349,11 @@ end, "crl")
 
 
 function f(a,b)
+ -- declare some globals to check that they don't interfere with 'getlocal'
+  global collectgarbage
   collectgarbage()
   local _, x = debug.getlocal(1, 1)
+  global assert, g, string
   local _, y = debug.getlocal(1, 2)
   assert(x == a and y == b)
   assert(debug.setlocal(2, 3, "pera") == "AA".."AA")
@@ -386,7 +389,9 @@ function g (...)
   f(AAAA,B)
   assert(AAAA == "pera" and B == "manga")
   do
+     global *
      local B = 13
+     global<const> assert
      local x,y = debug.getlocal(1,5)
      assert(x == 'B' and y == 13)
   end
@@ -431,7 +436,7 @@ do
   assert(a == nil and not b)
 end
 
--- testing iteraction between multiple values x hooks
+-- testing interaction between multiple values x hooks
 do
   local function f(...) return 3, ... end
   local count = 0
@@ -587,7 +592,7 @@ t = getupvalues(foo2)
 assert(t.a == 1 and t.b == 2 and t.c == 3)
 assert(debug.setupvalue(foo1, 1, "xuxu") == "b")
 assert(({debug.getupvalue(foo2, 3)})[2] == "xuxu")
--- upvalues of C functions are allways "called" "" (the empty string)
+-- upvalues of C functions are always named "" (the empty string)
 assert(debug.getupvalue(string.gmatch("x", "x"), 1) == "")  
 
 
@@ -701,7 +706,7 @@ assert(debug.traceback(print, 4) == print)
 assert(string.find(debug.traceback("hi", 4), "^hi\n"))
 assert(string.find(debug.traceback("hi"), "^hi\n"))
 assert(not string.find(debug.traceback("hi"), "'debug.traceback'"))
-assert(string.find(debug.traceback("hi", 0), "'debug.traceback'"))
+assert(string.find(debug.traceback("hi", 0), "'traceback'"))
 assert(string.find(debug.traceback(), "^stack traceback:\n"))
 
 do  -- C-function names in traceback
@@ -829,7 +834,7 @@ end
 
 co = coroutine.create(function (x) f(x) end)
 a, b = coroutine.resume(co, 3)
-t = {"'coroutine.yield'", "'f'", "in function <"}
+t = {"'yield'", "'f'", "in function <"}
 while coroutine.status(co) == "suspended" do
   checktraceback(co, t)
   a, b = coroutine.resume(co)
@@ -839,7 +844,7 @@ t[1] = "'error'"
 checktraceback(co, t)
 
 
--- test acessing line numbers of a coroutine from a resume inside
+-- test accessing line numbers of a coroutine from a resume inside
 -- a C function (this is a known bug in Lua 5.0)
 
 local function g(x)
@@ -966,9 +971,9 @@ local debug = require'debug'
 local a = 12  -- a local variable
 
 local n, v = debug.getlocal(1, 1)
-assert(n == "(temporary)" and v == debug)   -- unkown name but known value
+assert(n == "(temporary)" and v == debug)   -- unknown name but known value
 n, v = debug.getlocal(1, 2)
-assert(n == "(temporary)" and v == 12)   -- unkown name but known value
+assert(n == "(temporary)" and v == 12)   -- unknown name but known value
 
 -- a function with an upvalue
 local f = function () local x; return a end
@@ -1018,7 +1023,7 @@ do   -- bug in 5.4.0: line hooks in stripped code
     line = l
   end, "l")
   assert(s() == 2); debug.sethook(nil)
-  assert(line == nil)  -- hook called withoug debug info for 1st instruction
+  assert(line == nil)  -- hook called without debug info for 1st instruction
 end
 
 do   -- tests for 'source' in binary dumps

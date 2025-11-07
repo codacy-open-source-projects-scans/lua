@@ -1,5 +1,7 @@
 -- $Id: testes/files.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
+
+global <const> *
 
 local debug = require "debug"
 
@@ -347,7 +349,7 @@ collectgarbage()
 
 assert(io.write(' ' .. t .. ' '))
 assert(io.write(';', 'end of file\n'))
-f:flush(); io.flush()
+assert(f:flush()); assert(io.flush())
 f:close()
 print('+')
 
@@ -461,7 +463,24 @@ do   -- testing closing file in line iteration
 end
 
 
--- test for multipe arguments in 'lines'
+do print("testing flush")
+  local f = io.output("/dev/null")
+  assert(f:write("abcd"))   -- write to buffer
+  assert(f:flush())         -- write to device
+  assert(f:write("abcd"))   -- write to buffer
+  assert(io.flush())        -- write to device
+  assert(f:close())
+
+  local f = io.output("/dev/full")
+  assert(f:write("abcd"))   -- write to buffer
+  assert(not f:flush())     -- cannot write to device
+  assert(f:write("abcd"))   -- write to buffer
+  assert(not io.flush())    -- cannot write to device
+  assert(f:close())
+end
+
+
+-- test for multiple arguments in 'lines'
 io.output(file); io.write"0123456789\n":close()
 for a,b in io.lines(file, 1, 1) do
   if a == "\n" then assert(not b)
@@ -696,6 +715,37 @@ do
 end
 
 
+if T and T.nonblock and not _port then
+  print("testing failed write")
+
+  -- unable to write anything to /dev/full
+  local f = io.open("/dev/full", "w")
+  assert(f:setvbuf("no"))
+  local _, _, err, count = f:write("abcd")
+  assert(err > 0 and count == 0)
+  assert(f:close())
+
+  -- receiver will read a "few" bytes (enough to empty a large buffer)
+  local receiver = [[
+    lua -e 'assert(io.stdin:setvbuf("no")); assert(#io.read(1e4) == 1e4)' ]]
+
+  local f = io.popen(receiver, "w")
+  assert(f:setvbuf("no"))
+  T.nonblock(f)
+
+  -- able to write a few bytes
+  assert(f:write(string.rep("a", 1e2)))
+
+  -- Unable to write more bytes than the pipe buffer supports.
+  -- (In Linux, the pipe buffer size is 64K (2^16). Posix requires at
+  -- least 512 bytes.)
+  local _, _, err, count = f:write("abcd", string.rep("a", 2^17))
+  assert(err > 0 and count >= 512 and count < 2^17)
+
+  assert(f:close())
+end
+
+
 if not _soft then
   print("testing large files (> BUFSIZ)")
   io.output(file)
@@ -790,13 +840,13 @@ assert(os.date("!\0\0") == "\0\0")
 local x = string.rep("a", 10000)
 assert(os.date(x) == x)
 local t = os.time()
-D = os.date("*t", t)
+global D = os.date("*t", t)
 assert(os.date(string.rep("%d", 1000), t) ==
        string.rep(os.date("%d", t), 1000))
 assert(os.date(string.rep("%", 200)) == string.rep("%", 100))
 
 local function checkDateTable (t)
-  _G.D = os.date("*t", t)
+  D = os.date("*t", t)
   assert(os.time(D) == t)
   load(os.date([[assert(D.year==%Y and D.month==%m and D.day==%d and
     D.hour==%H and D.min==%M and D.sec==%S and
